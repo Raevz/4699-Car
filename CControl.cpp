@@ -514,7 +514,7 @@ int CControl::percentToInt(const float& percentage)
 		return 6;
 	}
 	else {
-		return 0; // Return -1 or some error code if percentage is out of expected range
+		return -1; // Return -1 or some error code if percentage is out of expected range
 	}
 }
 
