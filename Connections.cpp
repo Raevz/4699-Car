@@ -3,7 +3,7 @@
 #include "cvui.h"
 
 const std::string Car_IP = "192.168.0.112";
-const std::string Arena_IP = "192.168.0.101";
+const std::string Arena_IP = "192.168.0.100";
 const int Car_Port_cmd = 6969;
 const int ArenaData_Port = 4008;
 const int ArenaImage_Port = 5008;
@@ -29,7 +29,7 @@ Connections::Connections()
 	timeout_start_i = 0;
 	_baseSpeed = 200;
 
-	///// THESE IDENTIFY THE BLUE FOR MKR2
+	///// THESE IDENTIFY THE BLUE FOR MKR2 ///// CALIBRATION VALUES
 	_LowHue = 109;
 	_HighHue = 140;
 	_LowSat = 164;
@@ -38,8 +38,14 @@ Connections::Connections()
 	_HighVal = 160;
 	//////////////////////////////////////
 
-	_control = cv::Mat::zeros(cv::Size(250, 900), CV_8UC1);
+	low_mk2 = cv::Scalar(109, 164, 57);
+	hi_mk2 = cv::Scalar(140, 255, 160);
+	low_others = cv::Scalar(93, 32, 51);
+	hi_others = cv::Scalar(115, 157, 182);
+
+	_control = cv::Mat::zeros(cv::Size(250, 500), CV_8UC1);
 	_control = cv::Scalar(49, 52, 49);  // Dark gray background
+	_cal = cv::Mat::zeros(cv::Size(250, 500), CV_8UC1);
 
 	_alpha = 0.45;
 }
@@ -77,8 +83,8 @@ int Connections::main_menu()
 	_do_exit = false;
 
 	std::thread t1(&Connections::arenaData_thread, this);
-	std::thread t2(&Connections::arenaImage_thread, this);
 	t1.detach();
+	std::thread t2(&Connections::arenaImage_thread, this);	
 	t2.detach();
 
 	int cmd = -1;
@@ -166,8 +172,7 @@ std::string Connections::joy(cv::Point2f& in)
 void Connections::autonomous()
 {
 	_auto = false;
-	std::thread t_overlay(&Connections::overlay_thread, this);
-	t_overlay.detach();
+	
 
 	CClient client;
 	client.connect_socket(Car_IP, Car_Port_cmd);
@@ -194,9 +199,9 @@ void Connections::autonomous()
 		//client.tx_str("S " + std::to_string(y) + " " + std::to_string(x) + " " + std::to_string(t) + " \n");
 		if (_exit.contains(position))
 		{
+			client.tx_str("S +00 +00 0 \n");
 			_auto = false;
 		}
-
 	} while (!_do_exit && _auto);
 }
 
@@ -226,6 +231,8 @@ void Connections::arenaData()
 	{
 		client.tx_str(cmd);		
 		data.clear();
+		_control = cv::Mat::zeros(cv::Size(250, 500), CV_8UC1);
+		_control = cv::Scalar(49, 52, 49);  // Dark gray background
 		
 		if (client.rx_str(data))
 		{
@@ -256,38 +263,40 @@ void Connections::arenaData()
 
 			//Open window for controls
 			gui_position.y += lineHeight;
-			gui_position += Point(-10, 0);
-			cvui::window(_control, gui_position.x, gui_position.y, 250, 300, "CONTROLS");
+			gui_position += Point(-10, 20);
+			cvui::window(_control, gui_position.x, gui_position.y, 250, 400, "CONTROLS");
 
 			///////////// CONTROLS FOR PID VALUES //////////////////////////////////////////////////////////
-			gui_position += Point(0, 10);
+			gui_position += Point(10, 40);
 			cvui::text(_control, gui_position.x, gui_position.y, "Kp");
 			gui_position += cv::Point(0, 15);
 			cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_Kp, 0.0f, 0.2f);
 
-			gui_position += Point(0, 10);
+			gui_position += Point(0, 40);
 			cvui::text(_control, gui_position.x, gui_position.y, "Ki");
 			gui_position += cv::Point(0, 15);
 			cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_Ki, 0.0f, 0.05f);
 
-			gui_position += Point(0, 10);
+			gui_position += Point(0, 60);
 			cvui::text(_control, gui_position.x, gui_position.y, "Kd");
 			gui_position += cv::Point(0, 15);
 			cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_Kd, 0.0f, 1.0f);
 			////////////////////////////////////////////////////////////////////////////////////////////////
 			// AUTO BUTTON
-			gui_position += cv::Point(0, 20);
+			gui_position += cv::Point(0, 40);
 			cvui::checkbox(_control, gui_position.x, gui_position.y, "Auto Mode", &_auto);
 
 			// RESET BUTTON
-			gui_position = cv::Point((10 , _control.rows - 50)); // Centered at bottom
-			if (cvui::button(_control, gui_position.x, gui_position.y, 100, 30, "RESET")) {
+			gui_position += cv::Point(65, 65);
+			if (cvui::button(_control, gui_position.x, gui_position.y, 100, 30, "RESET")) 
+			{
 				_reset = true;
 			}
 			
 			// EXIT BUTTON
 			gui_position = cv::Point((_control.cols - 100) / 2, _control.rows - 50); // Centered at bottom
-			if (cvui::button(_control, gui_position.x, gui_position.y, 100, 30, "EXIT")) {
+			if (cvui::button(_control, gui_position.x, gui_position.y, 100, 30, "EXIT")) 
+			{
 				_do_exit = true;
 			}			
 			timeout_start_d = cv::getTickCount();			
@@ -303,6 +312,7 @@ void Connections::arenaData()
 				client.connect_socket(Arena_IP, ArenaData_Port);
 			}
 		}
+
 		cvui::update();
 		cv::imshow("DATA", _control);
 		cv::waitKey(10);
@@ -348,6 +358,13 @@ void Connections::arenaImage()
 	client.connect_socket(Arena_IP, ArenaImage_Port);
 	std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(300));
 
+	/////FOR SETUP OF LIVE IMAGE COLOURS
+	/*std::thread t3(&Connections::calibrate_thread, this);
+	t3.detach();*/
+
+	std::thread t_overlay(&Connections::overlay_thread, this);
+	t_overlay.detach();
+
 	do
 	{
 		client.tx_str("G 1");
@@ -355,17 +372,19 @@ void Connections::arenaImage()
 		imgrab.lock();
 		if (client.rx_im(_image) == true)
 		{
-			imgrab.unlock();
+			
 			timeout_start_i = cv::getTickCount();
 			if (_image.empty() == false)
-			{
-				cv::imshow("Arena Image", _image);
+			{		
 				if (_auto)
 				{
 					cv::addWeighted(_overlay, _alpha, _image, 1 - _alpha, 0, _image);
 				}
+				cv::imshow("Arena Image", _image);
+				
 				cv::waitKey(10);
 			}
+			imgrab.unlock();
 		}
 		else
 		{
@@ -382,11 +401,22 @@ void Connections::arenaImage()
 	} while (!_do_exit);
 }
 
+void Connections::overlay_init(cv::Mat& overlay)
+{
+
+}
+
 void Connections::overlay()
 {
+	while(_image.empty())
+	{
+		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
+	}
+	cv::Mat OG;
 	imgrab.lock();
-	_image.copyTo(_overlay);
+	_image.copyTo(OG);
 	imgrab.unlock();
+	OG.copyTo(_overlay);
 
 	int rows = _image.rows;
 	int cols = _image.cols;
@@ -444,43 +474,42 @@ void Connections::overlay()
 
 	_reset = false;
 
+	std::cout << "\n\nPATH READY\n\n";
+
 	do
 	{
-		while (_d1 == "0")
+		OG.copyTo(_overlay);
+		if (_d1 == "0" && _d2 == "0" && _d3 == "0" && _d4 == "0")
 		{
 			over.lock();
 			cv::rectangle(_overlay, zone_1, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk1_line, false, black, 3, LINE_AA);
 			cv::polylines(_overlay, L1, false, black, 3, LINE_AA);	
-			over.unlock();
-			std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(50));
+			over.unlock();			
 		}
-		while (_d1 == "1" && _d2 == "0")
+		if (_d1 == "1" && _d2 == "0" && _d3 == "0" && _d4 == "0")
 		{
 			over.lock();
 			cv::rectangle(_overlay, zone_2, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk2_line, false, black, 3, LINE_AA);
 			cv::polylines(_overlay, L2, false, black, 3, LINE_AA);
-			over.unlock();
-			std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(50));
+			over.unlock();			
 		}
-		while (_d1 == "1" && _d2 == "1" && _d3 == "0")
+		if (_d1 == "1" && _d2 == "1" && _d3 == "0" && _d4 == "0")
 		{
 			over.lock();
 			cv::rectangle(_overlay, zone_3, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk3_line, false, black, 3, LINE_AA);
 			cv::polylines(_overlay, L3, false, black, 3, LINE_AA);
-			over.unlock();
-			std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(50));
+			over.unlock();			
 		}
-		while (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "0")
+		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "0")
 		{
 			over.lock();
 			cv::rectangle(_overlay, zone_4, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk4_line, false, black, 3, LINE_AA);
 			cv::polylines(_overlay, L4, false, black, 3, LINE_AA);
-			over.unlock();
-			std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(50));
+			over.unlock();			
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "1")
 		{
@@ -488,9 +517,9 @@ void Connections::overlay()
 			cv::rectangle(_overlay, _exit, cv::Scalar(180, 60, 255), -1); // -1 means filled
 			cv::polylines(_overlay, L5, false, black, 3, LINE_AA);
 			cv::polylines(_overlay, L5f, false, black, 3, LINE_AA);
-			over.unlock();
-			std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(50));
+			over.unlock();			
 		}
+		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
 	} while (!_reset && !_do_exit);
 }
 
@@ -515,15 +544,34 @@ void Connections::img()
 	int middleMarkersY = 6 * cellHeight;
 	cv::Scalar black = cv::Scalar(0, 0, 0);
 
-	///// FIND THE TOP MARKER
-	cv::Point mk2 = locateMkr2(image);	
+	int mkrArea = 40;	
 
-	///// MAKE THE SHOOT ZONES IN FRONT OF THE MARKERS
-	cv::Rect zone_1 = cv::Rect(cellWidth, middleMarkersY, zoneWidth, zoneHeight);
+	///// FIND THE MARKERs
+	cv::Point mk1 = locateGenericMkr(image, 1);
+	cv::Point mk2 = locateMkr2(image);	
+	cv::Point mk3 = locateGenericMkr(image, 3);
+	cv::Point mk4 = locateGenericMkr(image, 4);
+
+	cv::Rect mk1Box = cv::Rect(mk1.x - mkrArea / 2, mk1.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect mk2Box = cv::Rect(mk2.x - mkrArea / 2, mk2.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect mk3Box = cv::Rect(mk3.x - mkrArea / 2, mk3.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect mk4Box = cv::Rect(mk4.x - mkrArea / 2, mk4.y - mkrArea / 2, mkrArea, mkrArea);
+
+	cv::rectangle(overlay, mk1Box, cv::Scalar(0,255,0), 3); // -1 means filled
+	cv::rectangle(overlay, mk2Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+	cv::rectangle(overlay, mk3Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+	cv::rectangle(overlay, mk4Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+	///// MAKE THE SHOOT ZONES IN FRONT OF THE MARKERS/////////////////////////////////////////////////////////////////////////////////
+	cv::Rect zone_1 = cv::Rect(mk1.x + cellWidth, mk1.y - 1.5*cellHeight, zoneWidth, zoneHeight);
+	cv::Rect zone_2 = cv::Rect(mk2.x - cellWidth, mk2.y + cellHeight, zoneWidth, zoneHeight);
+	cv::Rect zone_3 = cv::Rect(mk3.x - (cellWidth + zoneWidth), mk3.y - 1.5*cellHeight, zoneWidth, zoneHeight);
+	cv::Rect zone_4 = cv::Rect(mk4.x - 1.5*cellWidth, mk4.y - (cellHeight + zoneHeight), zoneWidth, zoneHeight);
+	///// THESE ARE THE GENERIC / HARDCODED ZONES (NOT YOU ZONE 2, YOU'RE DOING GREAT)
+	/*cv::Rect zone_1 = cv::Rect(cellWidth, middleMarkersY, zoneWidth, zoneHeight);
 	cv::Rect zone_2 = cv::Rect(mk2.x - cellWidth, mk2.y + cellHeight, zoneWidth, zoneHeight);
 	cv::Rect zone_3 = cv::Rect(cols - (zoneWidth + cellWidth), middleMarkersY, zoneWidth, zoneHeight);
-	cv::Rect zone_4 = cv::Rect(cols/2 - zoneWidth/2, cols - (zoneHeight + cellHeight), zoneWidth, zoneHeight);
-
+	cv::Rect zone_4 = cv::Rect(cols/2 - zoneWidth/2, cols - (zoneHeight + cellHeight), zoneWidth, zoneHeight);*/
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////EXIT BOX
 	cv::Rect exit = cv::Rect(cols - zoneWidth, rows - zoneHeight, zoneWidth, zoneHeight);
 	cv::rectangle(overlay, exit, cv::Scalar(180, 60, 255), -1); // -1 means filled
@@ -555,7 +603,7 @@ void Connections::img()
 	///// MK2 (VARIABLE) TO MK3
 	_line3 = { Point2f(zone_2.x + zoneWidth, zone_2.y + 0.5 * zoneHeight), Point2f(cols - 1.5 * cellWidth, 2.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, 4.5 * cellHeight), Point2f(zone_3.x + 0.5 * zoneWidth, zone_1.y) };
 	///// MK3 TO MK4
-	_line4 = { Point2f(zone_3.x + 0.5 * zoneWidth, zone_1.y + zoneHeight), Point2f(cols - 3.5 * cellWidth, 9.5 * cellHeight), Point2f(cols - 4.5 * cellWidth, 10.5 * cellHeight), Point2f(cols - 4.5 * cellWidth, rows - 2.5 * cellHeight), Point2f(cols - 6.5 * cellWidth, rows - 2.5 * cellHeight), Point2f(zone_4.x + zoneWidth, zone_4.y + 0.5 * zoneHeight)};
+	_line4 = { Point2f(zone_3.x + 0.5 * zoneWidth, zone_1.y + zoneHeight), Point2f(cols - 3.5 * cellWidth, 9.5 * cellHeight), Point2f(cols - 4.5 * cellWidth, 10.5 * cellHeight), Point2f(cols - 4.5 * cellWidth, rows - 2.5 * cellHeight), /*Point2f(cols - 6.5 * cellWidth, rows - 2.5 * cellHeight),*/ Point2f(zone_4.x + zoneWidth, zone_4.y + 0.5 * zoneHeight)};
 	///// MK4 TO EXIT
 	_line5 = { Point2f(zone_4.x, zone_4.y + 0.5 * zoneHeight), Point2f(4 * cellWidth, rows - 5.5 * cellHeight), Point2f(cols - 7.5 * cellWidth, rows - 6.5 * cellHeight), Point2f(cols - 5.5 * cellWidth, rows - 7.5 * cellHeight), Point2f(cols - 2.5 * cellWidth, rows - 6.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, rows - 4.5 * cellHeight) };
 	_line5f = { Point2f(cols - 1.5 * cellWidth, rows - 4.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, rows - 2.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, rows - 1.5 * cellHeight) };
@@ -644,17 +692,14 @@ cv::Point Connections::locateMkr2(const cv::Mat& image)
 	cv::Mat hsvImage;
 	cv::cvtColor(croppedImage, hsvImage, cv::COLOR_BGR2HSV);
 
-	// Define the range of blue colors in HSV
-	cv::Scalar lowerBlue(_LowHue, _LowSat, _LowVal);  // Adjust these values
-	cv::Scalar upperBlue(_HighHue, _HighSat, _HighVal); // Adjust these values
-	cv::Mat blueMask;
+	cv::Mat Mask;
 
 	// Threshold the HSV image to get only blue colors
-	cv::inRange(hsvImage, lowerBlue, upperBlue, blueMask);
+	cv::inRange(hsvImage, low_mk2, hi_mk2, Mask);
 
 	// Find contours in the mask
 	std::vector<std::vector<cv::Point>> contours;
-	cv::findContours(blueMask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+	cv::findContours(Mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
 	// Find the largest contour assuming it's the marker
 	double maxArea = 0;
@@ -672,10 +717,82 @@ cv::Point Connections::locateMkr2(const cv::Mat& image)
 	return markerCenter;
 }
 
+cv::Point Connections::locateGenericMkr(const cv::Mat& image, int mkr)
+{
+	cv::Mat croppedImage;
+	cv::Rect roi;
+	/////////////////DEPENDS ON WHICH MARKER WE WANT///////////////////////////////////////////////////////////////////
+	switch (mkr)
+	{
+		case 1: 
+		{
+			// Define the region of interest as the left 10% of the image
+			int roiWidth = image.cols * 0.05;  // Adjust this percentage as needed
+			int roiHeight = image.rows * 0.1;
+			roi = cv::Rect(0, image.rows/2 - roiHeight / 2, roiWidth, roiHeight);
+			croppedImage = image(roi);
+			break;
+		}
+		case 3:
+		{
+			// Define the region of interest as the right 10% of the image
+			int roiWidth = image.cols * 0.05;  // Adjust this percentage as needed
+			int roiHeight = image.rows * 0.1;
+			roi = cv::Rect(image.cols - roiWidth, image.rows / 2 - roiHeight/2, roiWidth, roiHeight);
+			croppedImage = image(roi);
+			break;
+		}
+		case 4:
+		{
+			// Define the region of interest as the bottom 10% of the image
+			int roiWidth = image.cols * 0.1;
+			int roiHeight = image.rows * 0.05;  // Adjust this percentage as needed
+			roi = cv::Rect(image.cols/2 - roiWidth/2, image.rows - roiHeight, roiWidth, roiHeight);
+			croppedImage = image(roi);
+			break;
+		}
+		default:
+		{
+			return cv::Point(0, 0);
+			break;
+		}
+	}
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Convert the cropped image from BGR to HSV color space
+	cv::Mat hsvImage;
+	cv::cvtColor(croppedImage, hsvImage, cv::COLOR_BGR2HSV);
+
+	cv::Mat Mask;
+
+	// Threshold the HSV image to get only blue colors
+	cv::inRange(hsvImage, low_others, hi_others, Mask);
+
+	// Find contours in the mask
+	std::vector<std::vector<cv::Point>> contours;
+	cv::findContours(Mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+	// Find the largest contour assuming it's the marker
+	double maxArea = 0;
+	cv::Rect boundingBox;
+	for (const auto& contour : contours) {
+		double area = cv::contourArea(contour);
+		if (area > maxArea) {
+			maxArea = area;
+			boundingBox = cv::boundingRect(contour);
+		}
+	}
+	// Adjust the marker's position relative to the full image
+	cv::Point markerCenter(boundingBox.x + boundingBox.width / 2 + roi.x, boundingBox.y + boundingBox.height / 2 + roi.y);
+
+	return markerCenter;
+}
+
 void Connections::calibrate()
 {
-	cv::imshow("Control", _control);
-	cvui::init("Control");
+	std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(5000));
+	
+	cv::imshow("Calibrate", _cal);
+	cvui::init("Calibrate");
 	std::vector<std::vector<cv::Point>> contours;
 	do
 	{
@@ -684,22 +801,27 @@ void Connections::calibrate()
 		ControlPanelCal();
 		cv::Mat hsv, cap, gMask;
 
-
-		cv::Mat image = cv::imread("Arena.png", cv::IMREAD_COLOR);
-		cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
-		cv::inRange(hsv, lower, upper, gMask);
-		cv::erode(gMask, gMask, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
-		cv::dilate(gMask, gMask, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
-
-		contours.clear();
-		cv::findContours(gMask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-		drawBox(image, contours, "Blue", cv::Scalar(255, 0, 0));
-
-		cv::imshow("Range", image);
-		cv::imshow("Mask", gMask);
-
-
+		// COMMENT THIS OUT FOR REAL USE/////////////////////////////
+		cv::Mat _image = cv::imread("Arena.png", cv::IMREAD_COLOR);
+		/////////////////////////////////////////////////////////////
+		imgrab.lock();
+		if(!_image.empty())
+		{	
+			cv::cvtColor(_image, hsv, cv::COLOR_BGR2HSV);
+			cv::inRange(hsv, lower, upper, gMask);
+			cv::erode(gMask, gMask, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+			cv::dilate(gMask, gMask, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+			contours.clear();
+			cv::findContours(gMask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);			
+			drawBox(_image, contours, "Blue", cv::Scalar(255, 0, 0));
+			
+			// COMMENT THIS OUT FOR REAL USE/////////////////////////////
+			cv::imshow("Range", _image);	
+			/////////////////////////////////////////////////////////////
+			cv::imshow("Mask", gMask);
+		}
+		imgrab.unlock();
+		
 	} while (cv::waitKey(1) != 'q' && _do_exit == false);
 
 	cv::destroyAllWindows();
@@ -742,52 +864,52 @@ void Connections::ControlPanelCal()
 
 	//Control Pane 
 	gui_position = cv::Point(0, 0);
-	cvui::window(_control, gui_position.x, gui_position.y, 250, 600, "RECYCLE CONTROL");
+	cvui::window(_cal, gui_position.x, gui_position.y, 250, 600, "colors");
 
 	//Low Hue Trackbar
 	gui_position += cv::Point(15, 40);
-	cvui::text(_control, gui_position.x, gui_position.y, "Low Hue");
+	cvui::text(_cal, gui_position.x, gui_position.y, "Low Hue");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_LowHue, 0, 179);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_LowHue, 0, 179);
 
 	//High Hue Trackbar
 	gui_position += cv::Point(0, 45);
-	cvui::text(_control, gui_position.x, gui_position.y, "High Hue");
+	cvui::text(_cal, gui_position.x, gui_position.y, "High Hue");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_HighHue, 0, 179);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_HighHue, 0, 179);
 
 	//Low Saturation Trackbar
 	gui_position += cv::Point(0, 45);
-	cvui::text(_control, gui_position.x, gui_position.y, "Low Saturation");
+	cvui::text(_cal, gui_position.x, gui_position.y, "Low Saturation");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_LowSat, 0, 255);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_LowSat, 0, 255);
 
 	//High Saturation Trackbar
 	gui_position += cv::Point(0, 45);
-	cvui::text(_control, gui_position.x, gui_position.y, "High Saturation");
+	cvui::text(_cal, gui_position.x, gui_position.y, "High Saturation");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_HighSat, 0, 255);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_HighSat, 0, 255);
 
 	//Low Value Trackbar
 	gui_position += cv::Point(0, 45);
-	cvui::text(_control, gui_position.x, gui_position.y, "Low Value");
+	cvui::text(_cal, gui_position.x, gui_position.y, "Low Value");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_LowVal, 0, 255);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_LowVal, 0, 255);
 
 	//High Value Trackbar
 	gui_position += cv::Point(0, 45);
-	cvui::text(_control, gui_position.x, gui_position.y, "High Value");
+	cvui::text(_cal, gui_position.x, gui_position.y, "High Value");
 	gui_position += cv::Point(0, 15);
-	cvui::trackbar(_control, gui_position.x, gui_position.y, 200, &_HighVal, 0, 255);
+	cvui::trackbar(_cal, gui_position.x, gui_position.y, 200, &_HighVal, 0, 255);
 
 	//Exit button
-	gui_position += cv::Point(-53, 40);
-	if (cvui::button(_control, gui_position.x, gui_position.y, 100, 30, "EXIT"))
+	gui_position += cv::Point(0, 40);
+	if (cvui::button(_cal, gui_position.x, gui_position.y, 100, 30, "EXIT"))
 	{
 		_do_exit = true;
 	}
 	cvui::update();
-	cv::imshow("Control", _control);
+	cv::imshow("Calibrate", _cal);
 }
 
 void Connections::arenaData_thread(Connections* ptr)
@@ -809,6 +931,13 @@ void Connections::overlay_thread(Connections* ptr)
 	while (ptr->_do_exit == false)
 	{
 		ptr->overlay();
+	}
+}
+void Connections::calibrate_thread(Connections* ptr)
+{
+	while (ptr->_do_exit == false)
+	{
+		ptr->calibrate();
 	}
 }
 

@@ -18,12 +18,16 @@ private:
 
 	float _Kp, _Ki, _Kd;
 	int _lastError, _baseSpeed;
-
+	//////// CALIBRATION VALUES
 	int _HighHue, _LowHue;
 	int _HighSat, _LowSat;
 	int _HighVal, _LowVal;
+	
+	//////// MARKER COLOURS
+	cv::Scalar low_mk2, hi_mk2, low_others, hi_others;
 
-	cv::Mat _control, _image, _overlay;
+
+	cv::Mat _control, _image, _overlay, _cal;
 	cv::Rect zone_1, zone_2, zone_3, zone_4, _exit;
 	std::vector<cv::Point2f> _line1, _line2, _line3, _line4, _line5, _line5f;
 	std::vector<cv::Point> _mk1_line, _mk2_line, _mk3_line, _mk4_line;
@@ -45,9 +49,12 @@ public:
 	void arenaData();
 	void arenaImage();
 	void overlay();
+	void overlay_init(cv::Mat& overlay);
 
 	void img();
 	cv::Point locateMkr2(const cv::Mat& image);
+	cv::Point Connections::locateGenericMkr(const cv::Mat& image, int mkr);
+
 
 	
 	void ControlPanelCal();
@@ -62,6 +69,7 @@ public:
 	static void arenaData_thread(Connections* ptr);
 	static void arenaImage_thread(Connections* ptr);
 	static void overlay_thread(Connections* ptr);
+	static void calibrate_thread(Connections* ptr);
 	//static void carImage_thread();
 
 	void arucoMarkerTracking();
