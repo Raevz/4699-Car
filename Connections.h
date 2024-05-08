@@ -29,9 +29,10 @@ private:
 
 	cv::Mat _control, _image, _overlay, _cal;
 	cv::Rect zone_1, zone_2, zone_3, zone_4, _exit;
+	cv::Rect _mk1Box, _mk2Box, _mk3Box, _mk4Box;
 	std::vector<cv::Point2f> _line1, _line2, _line3, _line4, _line5, _line5f;
 	std::vector<cv::Point> _mk1_line, _mk2_line, _mk3_line, _mk4_line;
-
+	std::vector<cv::Point> _L1, _L2, _L3, _L4, _L5, _L5f;
 	std::mutex imgrab, over;
 
 public:

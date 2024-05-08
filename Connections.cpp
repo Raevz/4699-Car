@@ -403,27 +403,13 @@ void Connections::arenaImage()
 
 void Connections::overlay_init(cv::Mat& overlay)
 {
-
-}
-
-void Connections::overlay()
-{
-	while(_image.empty())
-	{
-		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
-	}
-	cv::Mat OG;
-	imgrab.lock();
-	_image.copyTo(OG);
-	imgrab.unlock();
-	OG.copyTo(_overlay);
-
-	int rows = _image.rows;
-	int cols = _image.cols;
+	int rows = overlay.rows;
+	int cols = overlay.cols;
 
 	// Number of cells in the grid
 	int gridRows = 15;
 	int gridCols = 15;
+	int mkrArea = 40;
 
 	///// JUST SOME SETUP CODE
 	int cellWidth = cols / gridCols;
@@ -431,19 +417,24 @@ void Connections::overlay()
 	int zoneWidth = 3 * cellWidth;
 	int zoneHeight = 3 * cellHeight;
 	int middleMarkersY = 6 * cellHeight;
-	cv::Scalar black = cv::Scalar(0, 0, 0);
-	cv::Scalar rectColor(180, 0, 0); // blue color for the rectangle
 
-	///// FIND THE TOP MARKER
-	cv::Point mk2 = locateMkr2(_image);
+	///// FIND THE MARKERs
+	cv::Point mk1 = locateGenericMkr(overlay, 1);
+	cv::Point mk2 = locateMkr2(overlay);
+	cv::Point mk3 = locateGenericMkr(overlay, 3);
+	cv::Point mk4 = locateGenericMkr(overlay, 4);
 
-	///// MAKE THE SHOOT ZONES IN FRONT OF THE MARKERS
-	cv::Rect zone_1 = cv::Rect(cellWidth, middleMarkersY, zoneWidth, zoneHeight);
+	cv::Rect _mk1Box = cv::Rect(mk1.x - mkrArea / 2, mk1.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect _mk2Box = cv::Rect(mk2.x - mkrArea / 2, mk2.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect _mk3Box = cv::Rect(mk3.x - mkrArea / 2, mk3.y - mkrArea / 2, mkrArea, mkrArea);
+	cv::Rect _mk4Box = cv::Rect(mk4.x - mkrArea / 2, mk4.y - mkrArea / 2, mkrArea, mkrArea);
+
+	///// MAKE THE SHOOT ZONES IN FRONT OF THE MARKERS/////////////////////////////////////////////////////////////////////////////////
+	cv::Rect zone_1 = cv::Rect(mk1.x + cellWidth, mk1.y - 1.5 * cellHeight, zoneWidth, zoneHeight);
 	cv::Rect zone_2 = cv::Rect(mk2.x - cellWidth, mk2.y + cellHeight, zoneWidth, zoneHeight);
-	cv::Rect zone_3 = cv::Rect(cols - (zoneWidth + cellWidth), middleMarkersY, zoneWidth, zoneHeight);
-	cv::Rect zone_4 = cv::Rect(cols / 2 - zoneWidth / 2, cols - (zoneHeight + cellHeight), zoneWidth, zoneHeight);
-	///// EXIT BOX
-	cv::Rect _exit = cv::Rect(cols - zoneWidth, rows - zoneHeight, zoneWidth, zoneHeight);	
+	cv::Rect zone_3 = cv::Rect(mk3.x - (cellWidth + zoneWidth), mk3.y - 1.5 * cellHeight, zoneWidth, zoneHeight);
+	cv::Rect zone_4 = cv::Rect(mk4.x - 1.5 * cellWidth, mk4.y - (cellHeight + zoneHeight), zoneWidth, zoneHeight);
+	cv::Rect exit = cv::Rect(cols - zoneWidth, rows - zoneHeight, zoneWidth, zoneHeight);
 
 	///// PLACE STRAIGHT LINES NORMAL TO TARGETS THROUGH THE SHOOT ZONES
 	_mk1_line = { Point(zone_1.x + 0.5 * zoneWidth, zone_1.y + zoneHeight), Point(zone_1.x + 0.5 * zoneWidth, zone_1.y) };
@@ -465,26 +456,59 @@ void Connections::overlay()
 	_line5f = { Point2f(cols - 1.5 * cellWidth, rows - 4.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, rows - 2.5 * cellHeight), Point2f(cols - 1.5 * cellWidth, rows - 1.5 * cellHeight) };
 
 	///// THIS SHIT SMOOTHS THE LINES OUT AND STOPS JANKY TURNS
-	std::vector<Point> L1 = smooth(_line1);
-	std::vector<Point> L2 = smooth(_line2);
-	std::vector<Point> L3 = smooth(_line3);
-	std::vector<Point> L4 = smooth(_line4);
-	std::vector<Point> L5 = smooth(_line5);
-	std::vector<Point> L5f = smooth(_line5f);
-
-	_reset = false;
+	_L1 = smooth(_line1);
+	_L2 = smooth(_line2);
+	_L3 = smooth(_line3);
+	_L4 = smooth(_line4);
+	_L5 = smooth(_line5);
+	_L5f = smooth(_line5f);
 
 	std::cout << "\n\nPATH READY\n\n";
+}
+
+void Connections::overlay()
+{
+	while(_image.empty())
+	{
+		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
+	}
+	cv::Mat OG;
+	imgrab.lock();
+	_image.copyTo(OG);
+	imgrab.unlock();
+	OG.copyTo(_overlay);
+	overlay_init(_overlay);
+
+	cv::Scalar black = cv::Scalar(0, 0, 0);
+	cv::Scalar rectColor(180, 0, 0); // blue color for the rectangle
+
+	_reset = false;	
 
 	do
 	{
+		if (_reset)
+		{
+			while (_image.empty())
+			{
+				std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(10));
+			}
+
+			imgrab.lock();
+			_image.copyTo(OG);
+			imgrab.unlock();
+			OG.copyTo(_overlay);
+			overlay_init(_overlay);
+		}
+
 		OG.copyTo(_overlay);
+
 		if (_d1 == "0" && _d2 == "0" && _d3 == "0" && _d4 == "0")
 		{
 			over.lock();
 			cv::rectangle(_overlay, zone_1, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk1_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, L1, false, black, 3, LINE_AA);	
+			cv::polylines(_overlay, _L1, false, black, 3, LINE_AA);
+			cv::rectangle(_overlay, _mk1Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
 			over.unlock();			
 		}
 		if (_d1 == "1" && _d2 == "0" && _d3 == "0" && _d4 == "0")
@@ -492,7 +516,8 @@ void Connections::overlay()
 			over.lock();
 			cv::rectangle(_overlay, zone_2, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk2_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, L2, false, black, 3, LINE_AA);
+			cv::polylines(_overlay, _L2, false, black, 3, LINE_AA);
+			cv::rectangle(_overlay, _mk2Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
 			over.unlock();			
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "0" && _d4 == "0")
@@ -500,7 +525,8 @@ void Connections::overlay()
 			over.lock();
 			cv::rectangle(_overlay, zone_3, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk3_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, L3, false, black, 3, LINE_AA);
+			cv::polylines(_overlay, _L3, false, black, 3, LINE_AA);
+			cv::rectangle(_overlay, _mk3Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
 			over.unlock();			
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "0")
@@ -508,19 +534,20 @@ void Connections::overlay()
 			over.lock();
 			cv::rectangle(_overlay, zone_4, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk4_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, L4, false, black, 3, LINE_AA);
+			cv::polylines(_overlay, _L4, false, black, 3, LINE_AA);
+			cv::rectangle(_overlay, _mk4Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
 			over.unlock();			
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "1")
 		{
 			over.lock();
 			cv::rectangle(_overlay, _exit, cv::Scalar(180, 60, 255), -1); // -1 means filled
-			cv::polylines(_overlay, L5, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, L5f, false, black, 3, LINE_AA);
+			cv::polylines(_overlay, _L5, false, black, 3, LINE_AA);			
+			cv::polylines(_overlay, _L5f, false, black, 3, LINE_AA);
 			over.unlock();			
 		}
 		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
-	} while (!_reset && !_do_exit);
+	} while (!_do_exit);
 }
 
 void Connections::img()
