@@ -173,19 +173,18 @@ void Connections::autonomous()
 	CClient client;
 	client.connect_socket(Car_IP, Car_Port_cmd);
 	std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(300));
-	
+	std::string stop = "S +000 +00 0 \n";
 	do
 	{
-		arucoMarkerTracking();
-		sendControlCommands(client);
-
-		//client.tx_str("S " + std::to_string(y) + " " + std::to_string(x) + " " + std::to_string(t) + " \n");
-		/*if (_exit.contains(position))
+		while(_auto)
 		{
-			client.tx_str("S +00 +00 0 \n");
-			_auto = false;
-		}*/
+			arucoMarkerTracking();
+			sendControlCommands(client);
+		}
+		client.tx_str(stop);
+
 	} while (!_do_exit);
+
 }
 
 void Connections::arenaData()
@@ -573,7 +572,8 @@ void Connections::arucoMarkerTracking()
 	std::vector<int> ids;
 	std::vector<std::vector<cv::Point2f>> corners;
 	imgrab.lock();
-	if (!_image.empty()) {
+	if (!_image.empty()) 
+	{
 		cv::aruco::detectMarkers(_image, dictionary, corners, ids);
 		int idx = -1;
 		for (int i = 0; i < ids.size(); i++) {
@@ -584,7 +584,8 @@ void Connections::arucoMarkerTracking()
 		}
 		imgrab.unlock();
 
-		if (idx != -1) {
+		if (idx != -1) 
+		{
 			// Marker is detected
 			std::vector<cv::Point2f> marker_corners = corners[idx];
 			//cv::aruco::drawDetectedMarkers(_image, corners, ids);
@@ -603,12 +604,15 @@ void Connections::arucoMarkerTracking()
 
 			// PID Control calculations
 			updatePIDControl(center, angle);
-		}
-		else {
-			imgrab.unlock();
+
+			if (_exit.contains(center))
+			{
+				_auto = false;
+			}
 		}
 	}
-	else {
+	else 
+	{
 		imgrab.unlock();
 	}
 }
@@ -1143,79 +1147,3 @@ void Connections::calibrate_thread(Connections* ptr)
 		ptr->calibrate();
 	}
 }
-
-//double Connections::areaToDistance(double area, const cv::Mat& cameraMatrix, const cv::Mat& distCoeffs) {
-//	// Define parameters for distance conversion
-//	// These are starting points and may need adjustment based on your setup and calibration
-//	const double focalLength = 1000.0; // Focal length of the camera in pixels
-//	const double markerSize = 100.0;   // Size of the ArUco marker in millimeters
-//
-//	// Convert area to distance using simple geometric relationship
-//	// This is a basic implementation and may not provide accurate results without proper calibration
-//	double distance = focalLength * markerSize / std::sqrt(area);
-//
-//	return distance;
-//}
-//
-//
-//void Connections::arucoMarkerTracking()
-//{
-//	cv::VideoCapture vid;
-//	vid.open(0, CAP_DSHOW);
-//	cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
-//	if (vid.isOpened() == TRUE)
-//	{
-//		do
-//		{
-//			cv::Mat frame;
-//			vid >> frame;
-//			if (frame.empty() == false)
-//			{
-//				std::vector<int> ids;
-//				std::vector<std::vector<cv::Point2f> > corners;
-//				cv::aruco::detectMarkers(frame, dictionary, corners, ids);
-//				if (ids.size() > 0)
-//				{
-//					cv::aruco::drawDetectedMarkers(frame, corners, ids);
-//
-//					// Convert pixel measurements to real-world units
-//					for (size_t i = 0; i < ids.size(); ++i) {
-//						// Calculate area of the polygon formed by marker's corners
-//						double area = 0.0;
-//						for (size_t j = 0; j < corners[i].size(); ++j) {
-//							size_t k = (j + 1) % corners[i].size();
-//							area += corners[i][j].x * corners[i][k].y - corners[i][k].x * corners[i][j].y;
-//						}
-//						area = std::abs(area) / 2.0;
-//
-//						// Use the calculated area as the distance measurement
-//						// You may need to calibrate this value based on known distances
-//						double distance = area;
-//
-//						// Print or process the calculated distance
-//						std::cout << "Marker " << ids[i] << " Distance: " << distance << " (arbitrary units)" << std::endl;
-//					}
-//
-//					//cv::aruco::drawDetectedMarkers(frame, corners, ids);
-//
-//					//// Calculate area for each marker
-//					//for (size_t i = 0; i < ids.size(); ++i) {
-//					//   // Calculate area using the formula provided
-//					//   double area = 0.0;
-//					//   for (size_t j = 0; j < corners[i].size(); ++j) {
-//					//      size_t k = (j + 1) % corners[i].size();
-//					//      area += corners[i][j].x * corners[i][k].y - corners[i][k].x * corners[i][j].y;
-//					//   }
-//					//   area = std::abs(area) / 2.0;
-//
-//					//   // Print area or perform further processing
-//					//   std::cout << "Marker " << ids[i] << " Area: " << area << " pixels" << std::endl;
-//
-//					//   // Optionally, you can convert pixel area to real-world units using camera calibration parameters
-//					//}
-//				}
-//			}
-//			cv::imshow("VID", frame);
-//		} while (cv::waitKey(10) != 'q');
-//	}
-//}
