@@ -11,13 +11,14 @@ class Connections
 private:
 		
 	float timeout_start_ma, timeout_start_d, timeout_start_i;
-	bool _do_exit, _auto, _reset, _start;
+	bool _do_exit, _auto, _reset;
 	std::string _d1, _d2, _d3, _d4;
 	cv::Point mk2;
 	double _alpha;
 
 	float _Kp, _Ki, _Kd;
-	int _lastError, _baseSpeed;
+	int _lastError, _baseSpeed, _sumError, _error;
+	float _steering, _throttle;
 	//////// CALIBRATION VALUES
 	int _HighHue, _LowHue;
 	int _HighSat, _LowSat;
@@ -32,7 +33,7 @@ private:
 	cv::Rect _mk1Box, _mk2Box, _mk3Box, _mk4Box;
 	std::vector<cv::Point2f> _line1, _line2, _line3, _line4, _line5, _line5f;
 	std::vector<cv::Point> _mk1_line, _mk2_line, _mk3_line, _mk4_line;
-	std::vector<cv::Point> _L1, _L2, _L3, _L4, _L5, _L5f;
+	std::vector<cv::Point> _L1, _L2, _L3, _L4, _L5, _L5f, _activeLine;
 	std::mutex imgrab, over;
 
 public:
@@ -50,13 +51,14 @@ public:
 	void arenaData();
 	void arenaImage();
 	void overlay();
-	void overlay_init(cv::Mat& overlay);
+	void overlay_init(const cv::Mat& overlay);
 
 	void img();
 	cv::Point locateMkr2(const cv::Mat& image);
 	cv::Point Connections::locateGenericMkr(const cv::Mat& image, int mkr);
 
-
+	void sendControlCommands(CClient& client);
+	void updatePIDControl(const cv::Point2f& currentPos, float currentAngle);
 	
 	void ControlPanelCal();
 	void calibrate();

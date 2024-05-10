@@ -16,8 +16,7 @@ Connections::Connections()
 {
 	_do_exit = false;
 	_auto = false;
-	_reset = false;
-	_start = false;
+	_reset = false;	
 
 	_Kp = 0.07;
 	_Ki = 0.0008;
@@ -171,38 +170,22 @@ std::string Connections::joy(cv::Point2f& in)
 
 void Connections::autonomous()
 {
-	_auto = false;
-	
-
 	CClient client;
 	client.connect_socket(Car_IP, Car_Port_cmd);
 	std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(300));
-
 	
 	do
 	{
-		//get aruco position && orientation
-		//calculate orientation in relation to checkpoint
-		//calculate closest point on line
-		//calculate positional deviance from closest point
-		//PID motor commands
-		Point position;
-		int error = 0 - position.x;
-		int P = error;
-		int I = I + error;
-		int D = error - _lastError;
-		_lastError = error;
-		float motorspeed = P * _Kp + I * _Ki + D * _Kd;
-		//translate commands to strings
-		//transmit command strings
+		arucoMarkerTracking();
+		sendControlCommands(client);
 
 		//client.tx_str("S " + std::to_string(y) + " " + std::to_string(x) + " " + std::to_string(t) + " \n");
-		if (_exit.contains(position))
+		/*if (_exit.contains(position))
 		{
 			client.tx_str("S +00 +00 0 \n");
 			_auto = false;
-		}
-	} while (!_do_exit && _auto);
+		}*/
+	} while (!_do_exit);
 }
 
 void Connections::arenaData()
@@ -376,7 +359,7 @@ void Connections::arenaImage()
 			timeout_start_i = cv::getTickCount();
 			if (_image.empty() == false)
 			{		
-				if (_auto)
+				if (!_overlay.empty())
 				{
 					cv::addWeighted(_overlay, _alpha, _image, 1 - _alpha, 0, _image);
 				}
@@ -401,7 +384,7 @@ void Connections::arenaImage()
 	} while (!_do_exit);
 }
 
-void Connections::overlay_init(cv::Mat& overlay)
+void Connections::overlay_init(const cv::Mat& overlay)
 {
 	int rows = overlay.rows;
 	int cols = overlay.cols;
@@ -472,12 +455,13 @@ void Connections::overlay()
 	{
 		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
 	}
-	cv::Mat OG;
+	cv::Mat OG, blank;
 	imgrab.lock();
 	_image.copyTo(OG);
 	imgrab.unlock();
-	OG.copyTo(_overlay);
-	overlay_init(_overlay);
+	overlay_init(OG);
+	blank = cv::Mat::zeros(OG.size(), CV_8UC4);
+	blank.copyTo(_overlay);
 
 	cv::Scalar black = cv::Scalar(0, 0, 0);
 	cv::Scalar rectColor(180, 0, 0); // blue color for the rectangle
@@ -496,60 +480,252 @@ void Connections::overlay()
 			imgrab.lock();
 			_image.copyTo(OG);
 			imgrab.unlock();
-			OG.copyTo(_overlay);
-			overlay_init(_overlay);
+			overlay_init(OG);
+			blank = cv::Mat::zeros(OG.size(), CV_8UC4);
+			blank.copyTo(_overlay);
+			_reset = false;
 		}
+		over.lock();
+		blank.copyTo(_overlay);
 
-		OG.copyTo(_overlay);
+		cv::rectangle(_overlay, zone_1, rectColor, -1); // -1 means filled
+		cv::rectangle(_overlay, _mk1Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
 
+		cv::rectangle(_overlay, zone_2, rectColor, -1); // -1 means filled
+		cv::rectangle(_overlay, _mk2Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+
+		cv::rectangle(_overlay, zone_3, rectColor, -1); // -1 means filled
+		cv::rectangle(_overlay, _mk3Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+
+		cv::rectangle(_overlay, zone_4, rectColor, -1); // -1 means filled
+		cv::rectangle(_overlay, _mk4Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
+		cv::rectangle(_overlay, _exit, cv::Scalar(180, 60, 255), -1); // -1 means filled
+		over.unlock();
 		if (_d1 == "0" && _d2 == "0" && _d3 == "0" && _d4 == "0")
 		{
 			over.lock();
-			cv::rectangle(_overlay, zone_1, rectColor, -1); // -1 means filled
 			cv::polylines(_overlay, _mk1_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, _L1, false, black, 3, LINE_AA);
-			cv::rectangle(_overlay, _mk1Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
-			over.unlock();			
+			cv::polylines(_overlay, _L1, false, black, 3, LINE_AA);	
+			over.unlock();
+
+			if (_activeLine != _L1)
+			{
+				_activeLine = _L1;
+			}
 		}
 		if (_d1 == "1" && _d2 == "0" && _d3 == "0" && _d4 == "0")
 		{
-			over.lock();
-			cv::rectangle(_overlay, zone_2, rectColor, -1); // -1 means filled
+			over.lock();			
 			cv::polylines(_overlay, _mk2_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, _L2, false, black, 3, LINE_AA);
-			cv::rectangle(_overlay, _mk2Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
-			over.unlock();			
+			cv::polylines(_overlay, _L2, false, black, 3, LINE_AA);			
+			over.unlock();
+
+			if (_activeLine != _L2)
+			{
+				_activeLine = _L2;
+			}
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "0" && _d4 == "0")
 		{
-			over.lock();
-			cv::rectangle(_overlay, zone_3, rectColor, -1); // -1 means filled
+			over.lock();			
 			cv::polylines(_overlay, _mk3_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, _L3, false, black, 3, LINE_AA);
-			cv::rectangle(_overlay, _mk3Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
-			over.unlock();			
+			cv::polylines(_overlay, _L3, false, black, 3, LINE_AA);			
+			over.unlock();
+
+			if (_activeLine != _L3)
+			{
+				_activeLine = _L3;
+			}
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "0")
 		{
-			over.lock();
-			cv::rectangle(_overlay, zone_4, rectColor, -1); // -1 means filled
+			over.lock();			
 			cv::polylines(_overlay, _mk4_line, false, black, 3, LINE_AA);
-			cv::polylines(_overlay, _L4, false, black, 3, LINE_AA);
-			cv::rectangle(_overlay, _mk4Box, cv::Scalar(0, 255, 0), 3); // -1 means filled
-			over.unlock();			
+			cv::polylines(_overlay, _L4, false, black, 3, LINE_AA);			
+			over.unlock();		
+
+			if (_activeLine != _L4)
+			{
+				_activeLine = _L4;
+			}
 		}
 		if (_d1 == "1" && _d2 == "1" && _d3 == "1" && _d4 == "1")
 		{
-			over.lock();
-			cv::rectangle(_overlay, _exit, cv::Scalar(180, 60, 255), -1); // -1 means filled
+			over.lock();			
 			cv::polylines(_overlay, _L5, false, black, 3, LINE_AA);			
 			cv::polylines(_overlay, _L5f, false, black, 3, LINE_AA);
-			over.unlock();			
+			over.unlock();		
+
+			if (_activeLine != _L5)
+			{
+				_activeLine = _L5;
+			}
 		}
 		std::this_thread::sleep_until(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
 	} while (!_do_exit);
 }
 
+void Connections::arucoMarkerTracking() 
+{
+	cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+
+	// Detect markers
+	std::vector<int> ids;
+	std::vector<std::vector<cv::Point2f>> corners;
+	imgrab.lock();
+	if (!_image.empty()) {
+		cv::aruco::detectMarkers(_image, dictionary, corners, ids);
+		int idx = -1;
+		for (int i = 0; i < ids.size(); i++) {
+			if (ids[i] == 4) {  // Assuming '4' is the ID of the car's marker
+				idx = i;
+				break;
+			}
+		}
+		imgrab.unlock();
+
+		if (idx != -1) {
+			// Marker is detected
+			std::vector<cv::Point2f> marker_corners = corners[idx];
+			//cv::aruco::drawDetectedMarkers(_image, corners, ids);
+
+			// Calculate the center and orientation of the marker
+			cv::Point2f center(0, 0);
+			for (const cv::Point2f& corner : marker_corners) {
+				center += corner;
+			}
+			center.x /= 4.0;
+			center.y /= 4.0;
+
+			// Orientation towards the second corner for a more frontal alignment reference
+			cv::Point2f vector = marker_corners[1] - marker_corners[0];
+			float angle = atan2(vector.y, vector.x);
+
+			// PID Control calculations
+			updatePIDControl(center, angle);
+		}
+		else {
+			imgrab.unlock();
+		}
+	}
+	else {
+		imgrab.unlock();
+	}
+}
+void Connections::updatePIDControl(const cv::Point2f& currentPos, float currentAngle) 
+{
+	// Find the nearest point on the path
+	double minDistance = std::numeric_limits<double>::max();
+	cv::Point2f nearestPoint;
+	for (const cv::Point2f& point : _activeLine) 
+	{
+		double dist = cv::norm(currentPos - point);
+		if (dist < minDistance) 
+		{
+			minDistance = dist;
+			nearestPoint = point;
+		}
+	}
+
+	// Calculate cross-track error
+	double cte = cv::pointPolygonTest(_activeLine, currentPos, true);
+
+	// Calculate orientation error
+	// Assuming the desired path direction between two successive points
+	cv::Vec2f pathDirection = nearestPoint - (currentPos - cv::Point2f(cos(currentAngle), sin(currentAngle)) * 100.0f);
+	float pathAngle = atan2(pathDirection[1], pathDirection[0]);
+	float angleError = pathAngle - currentAngle;
+
+	// Normalize angle error to be within -pi to pi
+	angleError = atan2(sin(angleError), cos(angleError));
+
+	// Apply PID control to calculate steering and throttle
+	_steering = _Kp * cte + _Kd * (cte - _lastError) + _Ki * _sumError;
+	_throttle = _baseSpeed - fabs(_steering); // Reduce speed on curves
+
+	// Update for next iteration
+	_lastError = _error;
+	_sumError += _error;
+}
+void Connections::sendControlCommands(CClient& client) 
+{
+	// Convert throttle from -1.0 to 1.0 range to -200 to 200
+	int throttleValue = static_cast<int>(_throttle * 200);
+	// Clamp the throttle value to ensure it stays within the expected range
+	throttleValue = std::max(-200, std::min(throttleValue, 200));
+
+	// Convert steering from -1.0 to 1.0 range to -55 to 55
+	int steeringValue = static_cast<int>(_steering * 55);
+	// Clamp the steering value to ensure it stays within the expected range
+	steeringValue = std::max(-55, std::min(steeringValue, 55));
+
+	// Format the throttle and steering values for the command string
+	std::string throttleCmd = (throttleValue >= 0 ? "+" : "-") + std::to_string(throttleValue);
+	std::string steeringCmd = (steeringValue >= 0 ? "+" : "-") + std::to_string(abs(steeringValue));
+
+	// Turret control (placeholder, replace with actual logic)
+	char turretControl = '0'; // Default to '0'
+
+	// Create the command string
+	std::string cmd = "S " + throttleCmd + " " + steeringCmd + " " + turretControl + " \n";
+
+	// Send the command to the car
+	client.tx_str(cmd);
+}
+//void Connections::arucoMarkerTracking() {
+//	cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+//
+//
+//	// Detect markers
+//	std::vector<int> ids;
+//	std::vector<std::vector<cv::Point2f>> corners;
+//	imgrab.lock();
+//	
+//	
+//	auto it = std::find(ids.begin(), ids.end(), 4);
+//
+//	
+//	if(!_image.empty())
+//	{
+//		if (it != ids.end())
+//		{
+//			cv::aruco::detectMarkers(_image, dictionary, corners, ids);
+//			// Extract marker corner points
+//			cv::Point2f tl = corners[0][0];
+//			cv::Point2f br = corners[0][2];
+//
+//			// Calculate the center point of the marker
+//			cv::Point2f marker_center((tl.x + br.x) / 2, (tl.y + br.y) / 2);
+//
+//
+//			// Draw detected markers
+//			cv::aruco::drawDetectedMarkers(_image, corners, ids);
+//
+//			// Draw a red rectangle around the top-left corner
+//			cv::rectangle(_image, tl, tl + cv::Point2f(10, 10), cv::Scalar(0, 0, 255), 2);
+//
+//			// Draw a dot in the middle of the marker
+//			cv::circle(_image, marker_center, 5, cv::Scalar(0, 255, 255), -1);
+//
+//			// Determine whether to go left or right based on the position of the marker relative to the polyline
+//			double distance = cv::pointPolygonTest(_activeLine, marker_center, true);
+//			
+//			if (distance < 0)
+//			{
+//				std::cout << "Go Left" << std::endl;
+//			}
+//			else if (distance > 0)
+//			{
+//				std::cout << "Go Right" << std::endl;
+//			}
+//			else
+//			{
+//				std::cout << "Checkpoint Detected" << std::endl;
+//			}
+//		}
+//	}
+//	imgrab.unlock();
+//}
 void Connections::img()
 {
 	cv::Mat image = cv::imread("Arena.png", cv::IMREAD_COLOR);
